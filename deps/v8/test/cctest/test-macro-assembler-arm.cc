@@ -34,7 +34,8 @@
 #include "src/v8.h"
 #include "test/cctest/cctest.h"
 
-using namespace v8::internal;
+namespace v8 {
+namespace internal {
 
 typedef void* (*F)(int x, int y, int p2, int p3, int p4);
 
@@ -124,7 +125,7 @@ TEST(LoadAndStoreWithRepresentation) {
   __ bx(lr);
 
   CodeDesc desc;
-  masm->GetCode(&desc);
+  masm->GetCode(isolate, &desc);
   Handle<Code> code = isolate->factory()->NewCode(
       desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
 
@@ -234,7 +235,7 @@ TEST(ExtractLane) {
   __ ldm(ia_w, sp, r4.bit() | r5.bit() | pc.bit());
 
   CodeDesc desc;
-  masm->GetCode(&desc);
+  masm->GetCode(isolate, &desc);
   Handle<Code> code = isolate->factory()->NewCode(
       desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
 #ifdef DEBUG
@@ -369,7 +370,7 @@ TEST(ReplaceLane) {
   __ ldm(ia_w, sp, r4.bit() | r5.bit() | r6.bit() | r7.bit() | pc.bit());
 
   CodeDesc desc;
-  masm->GetCode(&desc);
+  masm->GetCode(isolate, &desc);
   Handle<Code> code = isolate->factory()->NewCode(
       desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
 #ifdef DEBUG
@@ -404,3 +405,6 @@ TEST(ReplaceLane) {
 }
 
 #undef __
+
+}  // namespace internal
+}  // namespace v8

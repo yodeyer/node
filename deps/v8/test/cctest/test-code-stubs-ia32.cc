@@ -38,7 +38,8 @@
 #include "test/cctest/cctest.h"
 #include "test/cctest/test-code-stubs.h"
 
-using namespace v8::internal;
+namespace v8 {
+namespace internal {
 
 #define __ assm.
 
@@ -72,8 +73,7 @@ ConvertDToIFunc MakeConvertDToIFuncTrampoline(Isolate* isolate,
   // Save registers make sure they don't get clobbered.
   int reg_num = 0;
   for (; reg_num < Register::kNumRegisters; ++reg_num) {
-    if (RegisterConfiguration::Crankshaft()->IsAllocatableGeneralCode(
-            reg_num)) {
+    if (RegisterConfiguration::Default()->IsAllocatableGeneralCode(reg_num)) {
       Register reg = Register::from_code(reg_num);
       if (!reg.is(esp) && !reg.is(ebp) && !reg.is(destination_reg)) {
         __ push(reg);
@@ -93,8 +93,7 @@ ConvertDToIFunc MakeConvertDToIFuncTrampoline(Isolate* isolate,
 
   // Make sure no registers have been unexpectedly clobbered
   for (--reg_num; reg_num >= 0; --reg_num) {
-    if (RegisterConfiguration::Crankshaft()->IsAllocatableGeneralCode(
-            reg_num)) {
+    if (RegisterConfiguration::Default()->IsAllocatableGeneralCode(reg_num)) {
       Register reg = Register::from_code(reg_num);
       if (!reg.is(esp) && !reg.is(ebp) && !reg.is(destination_reg)) {
         __ cmp(reg, MemOperand(esp, 0));
@@ -115,7 +114,7 @@ ConvertDToIFunc MakeConvertDToIFuncTrampoline(Isolate* isolate,
   __ ret(kDoubleSize);
 
   CodeDesc desc;
-  assm.GetCode(&desc);
+  assm.GetCode(isolate, &desc);
   return reinterpret_cast<ConvertDToIFunc>(
       reinterpret_cast<intptr_t>(buffer));
 }
@@ -153,3 +152,6 @@ TEST(ConvertDToI) {
     }
   }
 }
+
+}  // namespace internal
+}  // namespace v8

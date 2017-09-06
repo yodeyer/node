@@ -95,9 +95,8 @@ class MyRandomNumberGenerator {
   uint32_t i;
 };
 
-
-using namespace v8::internal;
-
+namespace v8 {
+namespace internal {
 
 static const int DEEP_DEPTH = 8 * 1024;
 static const int SUPER_DEEP_DEPTH = 80 * 1024;
@@ -791,7 +790,6 @@ static Handle<String> BuildEdgeCaseConsString(
       }
   }
   UNREACHABLE();
-  return Handle<String>();
 }
 
 
@@ -1101,7 +1099,8 @@ TEST(JSONStringifySliceMadeExternal) {
 
   CHECK_EQ(0,
            strcmp("\"bcdefghijklmnopqrstuvwxyz\"",
-                  *v8::String::Utf8Value(CompileRun("JSON.stringify(slice)"))));
+                  *v8::String::Utf8Value(CcTest::isolate(),
+                                         CompileRun("JSON.stringify(slice)"))));
 }
 
 
@@ -1193,6 +1192,7 @@ TEST(InternalizeExternal) {
   // TODO(mlippautz): Remove once we add support for forwarding ThinStrings in
   // minor MC.
   if (FLAG_minor_mc) return;
+  FLAG_stress_incremental_marking = false;
   FLAG_thin_strings = true;
   CcTest::InitializeVM();
   i::Isolate* isolate = CcTest::i_isolate();
@@ -1301,8 +1301,8 @@ TEST(SliceFromSlice) {
 UNINITIALIZED_TEST(OneByteArrayJoin) {
   v8::Isolate::CreateParams create_params;
   // Set heap limits.
-  create_params.constraints.set_max_semi_space_size(1);
-  create_params.constraints.set_max_old_space_size(6);
+  create_params.constraints.set_max_semi_space_size_in_kb(1024);
+  create_params.constraints.set_max_old_space_size(7);
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
   v8::Isolate* isolate = v8::Isolate::New(create_params);
   isolate->Enter();
@@ -1496,7 +1496,7 @@ static uint16_t ConvertLatin1(uint16_t c) {
   return result[0];
 }
 
-
+#ifndef V8_INTL_SUPPORT
 static void CheckCanonicalEquivalence(uint16_t c, uint16_t test) {
   uint16_t expect = ConvertLatin1<unibrow::Ecma262UnCanonicalize, true>(c);
   if (expect > unibrow::Latin1::kMaxChar) expect = 0;
@@ -1505,27 +1505,28 @@ static void CheckCanonicalEquivalence(uint16_t c, uint16_t test) {
 
 
 TEST(Latin1IgnoreCase) {
-  using namespace unibrow;
-  for (uint16_t c = Latin1::kMaxChar + 1; c != 0; c++) {
-    uint16_t lower = ConvertLatin1<ToLowercase, false>(c);
-    uint16_t upper = ConvertLatin1<ToUppercase, false>(c);
-    uint16_t test = Latin1::ConvertNonLatin1ToLatin1(c);
+  for (uint16_t c = unibrow::Latin1::kMaxChar + 1; c != 0; c++) {
+    uint16_t lower = ConvertLatin1<unibrow::ToLowercase, false>(c);
+    uint16_t upper = ConvertLatin1<unibrow::ToUppercase, false>(c);
+    uint16_t test = unibrow::Latin1::ConvertNonLatin1ToLatin1(c);
     // Filter out all character whose upper is not their lower or vice versa.
     if (lower == 0 && upper == 0) {
       CheckCanonicalEquivalence(c, test);
       continue;
     }
-    if (lower > Latin1::kMaxChar && upper > Latin1::kMaxChar) {
+    if (lower > unibrow::Latin1::kMaxChar &&
+        upper > unibrow::Latin1::kMaxChar) {
       CheckCanonicalEquivalence(c, test);
       continue;
     }
     if (lower == 0 && upper != 0) {
-      lower = ConvertLatin1<ToLowercase, false>(upper);
+      lower = ConvertLatin1<unibrow::ToLowercase, false>(upper);
     }
     if (upper == 0 && lower != c) {
-      upper = ConvertLatin1<ToUppercase, false>(lower);
+      upper = ConvertLatin1<unibrow::ToUppercase, false>(lower);
     }
-    if (lower > Latin1::kMaxChar && upper > Latin1::kMaxChar) {
+    if (lower > unibrow::Latin1::kMaxChar &&
+        upper > unibrow::Latin1::kMaxChar) {
       CheckCanonicalEquivalence(c, test);
       continue;
     }
@@ -1536,7 +1537,7 @@ TEST(Latin1IgnoreCase) {
     CHECK_EQ(Min(upper, lower), test);
   }
 }
-
+#endif
 
 class DummyResource: public v8::String::ExternalStringResource {
  public:
@@ -1667,3 +1668,6 @@ TEST(ExternalStringIndexOf) {
                    ->Int32Value(context.local())
                    .FromJust());
 }
+
+}  // namespace internal
+}  // namespace v8

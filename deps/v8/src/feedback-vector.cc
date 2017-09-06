@@ -6,8 +6,8 @@
 #include "src/code-stubs.h"
 #include "src/feedback-vector-inl.h"
 #include "src/ic/ic-inl.h"
-#include "src/ic/ic-state.h"
 #include "src/objects.h"
+#include "src/objects/object-macros.h"
 
 namespace v8 {
 namespace internal {
@@ -37,13 +37,13 @@ std::ostream& operator<<(std::ostream& os, FeedbackSlotKind kind) {
 
 FeedbackSlotKind FeedbackMetadata::GetKind(FeedbackSlot slot) const {
   int index = VectorICComputer::index(kReservedIndexCount, slot.ToInt());
-  int data = Smi::cast(get(index))->value();
+  int data = Smi::ToInt(get(index));
   return VectorICComputer::decode(data, slot.ToInt());
 }
 
 void FeedbackMetadata::SetKind(FeedbackSlot slot, FeedbackSlotKind kind) {
   int index = VectorICComputer::index(kReservedIndexCount, slot.ToInt());
-  int data = Smi::cast(get(index))->value();
+  int data = Smi::ToInt(get(index));
   int new_data = VectorICComputer::encode(data, slot.ToInt(), kind);
   set(index, Smi::FromInt(new_data));
 }
@@ -154,8 +154,6 @@ const char* FeedbackMetadata::Kind2String(FeedbackSlotKind kind) {
       return "BinaryOp";
     case FeedbackSlotKind::kCompareOp:
       return "CompareOp";
-    case FeedbackSlotKind::kToBoolean:
-      return "ToBoolean";
     case FeedbackSlotKind::kStoreDataPropertyInLiteral:
       return "StoreDataPropertyInLiteral";
     case FeedbackSlotKind::kCreateClosure:
@@ -164,13 +162,12 @@ const char* FeedbackMetadata::Kind2String(FeedbackSlotKind kind) {
       return "Literal";
     case FeedbackSlotKind::kTypeProfile:
       return "TypeProfile";
-    case FeedbackSlotKind::kGeneral:
-      return "General";
+    case FeedbackSlotKind::kForIn:
+      return "ForIn";
     case FeedbackSlotKind::kKindsNumber:
       break;
   }
   UNREACHABLE();
-  return "?";
 }
 
 bool FeedbackMetadata::HasTypeProfileSlot() const {
@@ -198,13 +195,17 @@ Handle<FeedbackVector> FeedbackVector::New(Isolate* isolate,
   Factory* factory = isolate->factory();
 
   const int slot_count = shared->feedback_metadata()->slot_count();
-  const int length = slot_count + kReservedIndexCount;
 
-  Handle<FixedArray> array = factory->NewFixedArray(length, TENURED);
-  array->set_map_no_write_barrier(isolate->heap()->feedback_vector_map());
-  array->set(kSharedFunctionInfoIndex, *shared);
-  array->set(kOptimizedCodeIndex, *factory->empty_weak_cell());
-  array->set(kInvocationCountIndex, Smi::kZero);
+  Handle<FeedbackVector> vector = factory->NewFeedbackVector(shared, TENURED);
+
+  DCHECK_EQ(vector->length(), slot_count);
+
+  DCHECK_EQ(vector->shared_function_info(), *shared);
+  DCHECK_EQ(vector->optimized_code_cell(),
+            Smi::FromEnum(OptimizationMarker::kNone));
+  DCHECK_EQ(vector->invocation_count(), 0);
+  DCHECK_EQ(vector->profiler_ticks(), 0);
+  DCHECK_EQ(vector->deopt_count(), 0);
 
   // Ensure we can skip the write barrier
   Handle<Object> uninitialized_sentinel = UninitializedSentinel(isolate);
@@ -220,24 +221,24 @@ Handle<FeedbackVector> FeedbackVector::New(Isolate* isolate,
     switch (kind) {
       case FeedbackSlotKind::kLoadGlobalInsideTypeof:
       case FeedbackSlotKind::kLoadGlobalNotInsideTypeof:
-        array->set(index, isolate->heap()->empty_weak_cell(),
-                   SKIP_WRITE_BARRIER);
+        vector->set(index, isolate->heap()->empty_weak_cell(),
+                    SKIP_WRITE_BARRIER);
         break;
+      case FeedbackSlotKind::kForIn:
       case FeedbackSlotKind::kCompareOp:
       case FeedbackSlotKind::kBinaryOp:
-      case FeedbackSlotKind::kToBoolean:
-        array->set(index, Smi::kZero, SKIP_WRITE_BARRIER);
+        vector->set(index, Smi::kZero, SKIP_WRITE_BARRIER);
         break;
       case FeedbackSlotKind::kCreateClosure: {
         Handle<Cell> cell = factory->NewNoClosuresCell(undefined_value);
-        array->set(index, *cell);
+        vector->set(index, *cell);
         break;
       }
       case FeedbackSlotKind::kLiteral:
-        array->set(index, *undefined_value, SKIP_WRITE_BARRIER);
+        vector->set(index, Smi::kZero, SKIP_WRITE_BARRIER);
         break;
       case FeedbackSlotKind::kCall:
-        array->set(index, *uninitialized_sentinel, SKIP_WRITE_BARRIER);
+        vector->set(index, *uninitialized_sentinel, SKIP_WRITE_BARRIER);
         extra_value = Smi::kZero;
         break;
       case FeedbackSlotKind::kLoadProperty:
@@ -250,24 +251,23 @@ Handle<FeedbackVector> FeedbackVector::New(Isolate* isolate,
       case FeedbackSlotKind::kStoreKeyedSloppy:
       case FeedbackSlotKind::kStoreKeyedStrict:
       case FeedbackSlotKind::kStoreDataPropertyInLiteral:
-      case FeedbackSlotKind::kGeneral:
       case FeedbackSlotKind::kTypeProfile:
-        array->set(index, *uninitialized_sentinel, SKIP_WRITE_BARRIER);
+        vector->set(index, *uninitialized_sentinel, SKIP_WRITE_BARRIER);
         break;
 
       case FeedbackSlotKind::kInvalid:
       case FeedbackSlotKind::kKindsNumber:
         UNREACHABLE();
-        array->set(index, Smi::kZero, SKIP_WRITE_BARRIER);
+        vector->set(index, Smi::kZero, SKIP_WRITE_BARRIER);
         break;
     }
     for (int j = 1; j < entry_size; j++) {
-      array->set(index + j, extra_value, SKIP_WRITE_BARRIER);
+      vector->set(index + j, extra_value, SKIP_WRITE_BARRIER);
     }
     i += entry_size;
   }
 
-  Handle<FeedbackVector> result = Handle<FeedbackVector>::cast(array);
+  Handle<FeedbackVector> result = Handle<FeedbackVector>::cast(vector);
   if (!isolate->is_best_effort_code_coverage()) {
     AddToCodeCoverageList(isolate, result);
   }
@@ -303,40 +303,47 @@ void FeedbackVector::SetOptimizedCode(Handle<FeedbackVector> vector,
   DCHECK_EQ(code->kind(), Code::OPTIMIZED_FUNCTION);
   Factory* factory = vector->GetIsolate()->factory();
   Handle<WeakCell> cell = factory->NewWeakCell(code);
-  vector->set(kOptimizedCodeIndex, *cell);
+  vector->set_optimized_code_cell(*cell);
+}
+
+void FeedbackVector::SetOptimizationMarker(OptimizationMarker marker) {
+  set_optimized_code_cell(Smi::FromEnum(marker));
 }
 
 void FeedbackVector::ClearOptimizedCode() {
-  set(kOptimizedCodeIndex, GetIsolate()->heap()->empty_weak_cell());
+  set_optimized_code_cell(Smi::FromEnum(OptimizationMarker::kNone));
 }
 
 void FeedbackVector::EvictOptimizedCodeMarkedForDeoptimization(
     SharedFunctionInfo* shared, const char* reason) {
-  WeakCell* cell = WeakCell::cast(get(kOptimizedCodeIndex));
-  if (!cell->cleared()) {
-    Code* code = Code::cast(cell->value());
-    if (code->marked_for_deoptimization()) {
-      if (FLAG_trace_deopt) {
-        PrintF("[evicting optimizing code marked for deoptimization (%s) for ",
-               reason);
-        shared->ShortPrint();
-        PrintF("]\n");
-      }
-      if (!code->deopt_already_counted()) {
-        shared->increment_deopt_count();
-        code->set_deopt_already_counted(true);
-      }
-      ClearOptimizedCode();
+  Object* slot = optimized_code_cell();
+  if (slot->IsSmi()) return;
+
+  WeakCell* cell = WeakCell::cast(slot);
+  if (cell->cleared()) {
+    ClearOptimizedCode();
+    return;
+  }
+
+  Code* code = Code::cast(cell->value());
+  if (code->marked_for_deoptimization()) {
+    if (FLAG_trace_deopt) {
+      PrintF("[evicting optimizing code marked for deoptimization (%s) for ",
+             reason);
+      shared->ShortPrint();
+      PrintF("]\n");
     }
+    if (!code->deopt_already_counted()) {
+      increment_deopt_count();
+      code->set_deopt_already_counted(true);
+    }
+    ClearOptimizedCode();
   }
 }
 
-void FeedbackVector::ClearSlots(JSFunction* host_function) {
-  Isolate* isolate = GetIsolate();
-
+bool FeedbackVector::ClearSlots(Isolate* isolate) {
   Object* uninitialized_sentinel =
       FeedbackVector::RawUninitializedSentinel(isolate);
-  Oddball* undefined_value = isolate->heap()->undefined_value();
 
   bool feedback_updated = false;
   FeedbackMetadataIterator iter(metadata());
@@ -401,6 +408,7 @@ void FeedbackVector::ClearSlots(JSFunction* host_function) {
           }
           break;
         }
+        case FeedbackSlotKind::kForIn:
         case FeedbackSlotKind::kBinaryOp:
         case FeedbackSlotKind::kCompareOp: {
           DCHECK(Get(slot)->IsSmi());
@@ -412,22 +420,8 @@ void FeedbackVector::ClearSlots(JSFunction* host_function) {
           case FeedbackSlotKind::kTypeProfile:
             break;
         }
-        case FeedbackSlotKind::kGeneral: {
-          if (obj->IsHeapObject()) {
-            InstanceType instance_type =
-                HeapObject::cast(obj)->map()->instance_type();
-            // AllocationSites are exempt from clearing. They don't store Maps
-            // or Code pointers which can cause memory leaks if not cleared
-            // regularly.
-            if (instance_type != ALLOCATION_SITE_TYPE) {
-              Set(slot, uninitialized_sentinel, SKIP_WRITE_BARRIER);
-              feedback_updated = true;
-            }
-          }
-          break;
-        }
         case FeedbackSlotKind::kLiteral: {
-          Set(slot, undefined_value, SKIP_WRITE_BARRIER);
+          Set(slot, Smi::kZero, SKIP_WRITE_BARRIER);
           feedback_updated = true;
           break;
         }
@@ -439,7 +433,6 @@ void FeedbackVector::ClearSlots(JSFunction* host_function) {
           }
           break;
         }
-        case FeedbackSlotKind::kToBoolean:
         case FeedbackSlotKind::kInvalid:
         case FeedbackSlotKind::kKindsNumber:
           UNREACHABLE();
@@ -447,9 +440,7 @@ void FeedbackVector::ClearSlots(JSFunction* host_function) {
       }
     }
   }
-  if (feedback_updated) {
-    IC::OnFeedbackChanged(isolate, host_function);
-  }
+  return feedback_updated;
 }
 
 Handle<FixedArray> FeedbackNexus::EnsureArrayOfSize(int length) {
@@ -626,7 +617,7 @@ InlineCacheState CallICNexus::StateFromFeedback() const {
 int CallICNexus::ExtractCallCount() {
   Object* call_count = GetFeedbackExtra();
   CHECK(call_count->IsSmi());
-  int value = Smi::cast(call_count)->value();
+  int value = Smi::ToInt(call_count);
   return value;
 }
 
@@ -683,7 +674,7 @@ void FeedbackNexus::ConfigureMonomorphic(Handle<Name> name,
 
 void FeedbackNexus::ConfigurePolymorphic(Handle<Name> name,
                                          MapHandles const& maps,
-                                         List<Handle<Object>>* handlers) {
+                                         ObjectHandles* handlers) {
   int receiver_count = static_cast<int>(maps.size());
   DCHECK(receiver_count > 1);
   Handle<FixedArray> array;
@@ -774,8 +765,7 @@ MaybeHandle<Object> FeedbackNexus::FindHandlerForMap(Handle<Map> map) const {
   return MaybeHandle<Code>();
 }
 
-bool FeedbackNexus::FindHandlers(List<Handle<Object>>* code_list,
-                                 int length) const {
+bool FeedbackNexus::FindHandlers(ObjectHandles* code_list, int length) const {
   Object* feedback = GetFeedback();
   Isolate* isolate = GetIsolate();
   int count = 0;
@@ -793,7 +783,7 @@ bool FeedbackNexus::FindHandlers(List<Handle<Object>>* code_list,
       if (!cell->cleared()) {
         Object* code = array->get(i + increment - 1);
         DCHECK(IC::IsHandler(code));
-        code_list->Add(handle(code, isolate));
+        code_list->push_back(handle(code, isolate));
         count++;
       }
     }
@@ -802,7 +792,7 @@ bool FeedbackNexus::FindHandlers(List<Handle<Object>>* code_list,
     if (!cell->cleared()) {
       Object* code = GetFeedbackExtra();
       DCHECK(IC::IsHandler(code));
-      code_list->Add(handle(code, isolate));
+      code_list->push_back(handle(code, isolate));
       count++;
     }
   }
@@ -828,15 +818,14 @@ Name* KeyedStoreICNexus::FindFirstName() const {
 KeyedAccessStoreMode KeyedStoreICNexus::GetKeyedAccessStoreMode() const {
   KeyedAccessStoreMode mode = STANDARD_STORE;
   MapHandles maps;
-  List<Handle<Object>> handlers;
+  ObjectHandles handlers;
 
   if (GetKeyType() == PROPERTY) return mode;
 
   ExtractMaps(&maps);
   FindHandlers(&handlers, static_cast<int>(maps.size()));
-  for (int i = 0; i < handlers.length(); i++) {
+  for (const Handle<Object>& maybe_code_handler : handlers) {
     // The first handler that isn't the slow handler will have the bits we need.
-    Handle<Object> maybe_code_handler = handlers.at(i);
     Handle<Code> handler;
     if (maybe_code_handler->IsTuple3()) {
       // Elements transition.
@@ -846,6 +835,10 @@ KeyedAccessStoreMode KeyedStoreICNexus::GetKeyedAccessStoreMode() const {
       // Element store with prototype chain check.
       Handle<Tuple2> data_handler = Handle<Tuple2>::cast(maybe_code_handler);
       handler = handle(Code::cast(data_handler->value2()));
+    } else if (maybe_code_handler->IsSmi()) {
+      // Skip proxy handlers.
+      DCHECK_EQ(*maybe_code_handler, *StoreHandler::StoreProxy(GetIsolate()));
+      continue;
     } else {
       // Element store without prototype chain check.
       handler = Handle<Code>::cast(maybe_code_handler);
@@ -869,7 +862,7 @@ KeyedAccessStoreMode KeyedStoreICNexus::GetKeyedAccessStoreMode() const {
 IcCheckType KeyedLoadICNexus::GetKeyType() const {
   Object* feedback = GetFeedback();
   if (feedback == *FeedbackVector::MegamorphicSentinel(GetIsolate())) {
-    return static_cast<IcCheckType>(Smi::cast(GetFeedbackExtra())->value());
+    return static_cast<IcCheckType>(Smi::ToInt(GetFeedbackExtra()));
   }
   return IsPropertyNameFeedback(feedback) ? PROPERTY : ELEMENT;
 }
@@ -877,7 +870,7 @@ IcCheckType KeyedLoadICNexus::GetKeyType() const {
 IcCheckType KeyedStoreICNexus::GetKeyType() const {
   Object* feedback = GetFeedback();
   if (feedback == *FeedbackVector::MegamorphicSentinel(GetIsolate())) {
-    return static_cast<IcCheckType>(Smi::cast(GetFeedbackExtra())->value());
+    return static_cast<IcCheckType>(Smi::ToInt(GetFeedbackExtra()));
   }
   return IsPropertyNameFeedback(feedback) ? PROPERTY : ELEMENT;
 }
@@ -905,13 +898,28 @@ InlineCacheState CompareICNexus::StateFromFeedback() const {
 }
 
 BinaryOperationHint BinaryOpICNexus::GetBinaryOperationFeedback() const {
-  int feedback = Smi::cast(GetFeedback())->value();
+  int feedback = Smi::ToInt(GetFeedback());
   return BinaryOperationHintFromFeedback(feedback);
 }
 
 CompareOperationHint CompareICNexus::GetCompareOperationFeedback() const {
-  int feedback = Smi::cast(GetFeedback())->value();
+  int feedback = Smi::ToInt(GetFeedback());
   return CompareOperationHintFromFeedback(feedback);
+}
+
+InlineCacheState ForInICNexus::StateFromFeedback() const {
+  ForInHint hint = GetForInFeedback();
+  if (hint == ForInHint::kNone) {
+    return UNINITIALIZED;
+  } else if (hint == ForInHint::kAny) {
+    return GENERIC;
+  }
+  return MONOMORPHIC;
+}
+
+ForInHint ForInICNexus::GetForInFeedback() const {
+  int feedback = Smi::ToInt(GetFeedback());
+  return ForInHintFromFeedback(feedback);
 }
 
 InlineCacheState StoreDataPropertyInLiteralICNexus::StateFromFeedback() const {
@@ -956,19 +964,19 @@ void CollectTypeProfileNexus::Collect(Handle<String> type, int position) {
   Handle<UnseededNumberDictionary> types;
 
   if (feedback == *FeedbackVector::UninitializedSentinel(isolate)) {
-    types = UnseededNumberDictionary::NewEmpty(isolate);
+    types = UnseededNumberDictionary::New(isolate, 1);
   } else {
     types = handle(UnseededNumberDictionary::cast(feedback));
   }
 
   Handle<ArrayList> position_specific_types;
 
-  if (types->Has(position)) {
-    int entry = types->FindEntry(position);
+  int entry = types->FindEntry(position);
+  if (entry == UnseededNumberDictionary::kNotFound) {
+    position_specific_types = ArrayList::New(isolate, 1);
+  } else {
     DCHECK(types->ValueAt(entry)->IsArrayList());
     position_specific_types = handle(ArrayList::cast(types->ValueAt(entry)));
-  } else {
-    position_specific_types = ArrayList::New(isolate, 1);
   }
 
   types = UnseededNumberDictionary::Set(
@@ -994,11 +1002,12 @@ Handle<JSObject> ConvertToJSObject(Isolate* isolate,
       Handle<ArrayList> position_specific_types(
           ArrayList::cast(feedback->get(value_index)));
 
-      int position = Smi::cast(key)->value();
-      JSObject::AddDataElement(type_profile, position,
-                               isolate->factory()->NewJSArrayWithElements(
-                                   position_specific_types->Elements()),
-                               PropertyAttributes::NONE)
+      int position = Smi::ToInt(key);
+      JSObject::AddDataElement(
+          type_profile, position,
+          isolate->factory()->NewJSArrayWithElements(
+              ArrayList::Elements(position_specific_types)),
+          PropertyAttributes::NONE)
           .ToHandleChecked();
     }
   }

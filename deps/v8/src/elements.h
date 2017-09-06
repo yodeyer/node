@@ -6,7 +6,6 @@
 #define V8_ELEMENTS_H_
 
 #include "src/elements-kind.h"
-#include "src/isolate.h"
 #include "src/keys.h"
 #include "src/objects.h"
 
@@ -30,7 +29,7 @@ class ElementsAccessor {
 
   // Checks the elements of an object for consistency, asserting when a problem
   // is found.
-  virtual void Validate(Handle<JSObject> obj) = 0;
+  virtual void Validate(JSObject* obj) = 0;
 
   // Returns true if a holder contains an element with the specified index
   // without iterating up the prototype chain.  The caller can optionally pass
@@ -50,6 +49,10 @@ class ElementsAccessor {
                          PropertyFilter filter = ALL_PROPERTIES) {
     return HasElement(holder, index, holder->elements(), filter);
   }
+
+  // Note: this is currently not implemented for string wrapper and
+  // typed array elements.
+  virtual bool HasEntry(JSObject* holder, uint32_t entry) = 0;
 
   virtual Handle<Object> Get(Handle<JSObject> holder, uint32_t entry) = 0;
 

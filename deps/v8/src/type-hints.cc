@@ -13,8 +13,12 @@ std::ostream& operator<<(std::ostream& os, BinaryOperationHint hint) {
       return os << "None";
     case BinaryOperationHint::kSignedSmall:
       return os << "SignedSmall";
+    case BinaryOperationHint::kSignedSmallInputs:
+      return os << "SignedSmallInputs";
     case BinaryOperationHint::kSigned32:
       return os << "Signed32";
+    case BinaryOperationHint::kNumber:
+      return os << "Number";
     case BinaryOperationHint::kNumberOrOddball:
       return os << "NumberOrOddball";
     case BinaryOperationHint::kString:
@@ -23,7 +27,6 @@ std::ostream& operator<<(std::ostream& os, BinaryOperationHint hint) {
       return os << "Any";
   }
   UNREACHABLE();
-  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, CompareOperationHint hint) {
@@ -40,13 +43,28 @@ std::ostream& operator<<(std::ostream& os, CompareOperationHint hint) {
       return os << "InternalizedString";
     case CompareOperationHint::kString:
       return os << "String";
+    case CompareOperationHint::kSymbol:
+      return os << "Symbol";
     case CompareOperationHint::kReceiver:
       return os << "Receiver";
     case CompareOperationHint::kAny:
       return os << "Any";
   }
   UNREACHABLE();
-  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, ForInHint hint) {
+  switch (hint) {
+    case ForInHint::kNone:
+      return os << "None";
+    case ForInHint::kEnumCacheKeys:
+      return os << "EnumCacheKeys";
+    case ForInHint::kEnumCacheKeysAndIndices:
+      return os << "EnumCacheKeysAndIndices";
+    case ForInHint::kAny:
+      return os << "Any";
+  }
+  UNREACHABLE();
 }
 
 std::ostream& operator<<(std::ostream& os, ToBooleanHint hint) {
@@ -75,7 +93,6 @@ std::ostream& operator<<(std::ostream& os, ToBooleanHint hint) {
       return os << "NeedsMap";
   }
   UNREACHABLE();
-  return os;
 }
 
 std::string ToString(ToBooleanHint hint) {
@@ -104,7 +121,6 @@ std::string ToString(ToBooleanHint hint) {
       return "NeedsMap";
   }
   UNREACHABLE();
-  return "";
 }
 
 std::ostream& operator<<(std::ostream& os, ToBooleanHints hints) {
@@ -156,7 +172,6 @@ std::ostream& operator<<(std::ostream& os, const StringAddFlags& flags) {
       break;
   }
   UNREACHABLE();
-  return os;
 }
 
 }  // namespace internal

@@ -33,14 +33,14 @@
 #include "src/factory.h"
 #include "src/macro-assembler.h"
 
+namespace v8 {
+namespace internal {
+
 #if defined(USE_SIMULATOR)
 
 #ifndef V8_TARGET_LITTLE_ENDIAN
 #error Expected ARM to be little-endian
 #endif
-
-using namespace v8::base;
-using namespace v8::internal;
 
 // Define these function prototypes to match JSEntryFunction in execution.cc.
 typedef Object* (*F1)(int x, int p1, int p2, int p3, int p4);
@@ -194,7 +194,7 @@ static void TestInvalidateExclusiveAccess(
   __ mov(pc, Operand(lr));
 
   CodeDesc desc;
-  assm.GetCode(&desc);
+  assm.GetCode(isolate, &desc);
   Handle<Code> code = isolate->factory()->NewCode(
       desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
   F3 f = FUNCTION_CAST<F3>(code->entry());
@@ -262,7 +262,7 @@ static int ExecuteMemoryAccess(Isolate* isolate, TestData* test_data,
   __ bx(lr);
 
   CodeDesc desc;
-  assm.GetCode(&desc);
+  assm.GetCode(isolate, &desc);
   Handle<Code> code = isolate->factory()->NewCode(
       desc, Code::ComputeFlags(Code::STUB), Handle<Code>());
   F3 f = FUNCTION_CAST<F3>(code->entry());
@@ -385,3 +385,6 @@ TEST(simulator_invalidate_exclusive_access_threaded) {
 #undef __
 
 #endif  // USE_SIMULATOR
+
+}  // namespace internal
+}  // namespace v8
