@@ -40,6 +40,7 @@
 #include <sys/uio.h> /* writev */
 #include <sys/resource.h> /* getrusage */
 #include <pwd.h>
+#include <time.h>
 
 #ifdef __sun
 # include <sys/filio.h>
@@ -328,6 +329,13 @@ int uv_loop_alive(const uv_loop_t* loop) {
     return uv__loop_alive(loop);
 }
 
+void log_end_time(clock_t * start, const char * name) {
+  clock_t end = clock();
+  float startMs = (float)(*start) / CLOCKS_PER_SEC * 1000;
+  float endMs = (float)(end) / CLOCKS_PER_SEC * 1000;
+  float ms = endMs - startMs;
+  printf("%s\t%d\t%f\t%f\t%f\n", name, getpid(), startMs, endMs, ms);
+}
 
 int uv_run(uv_loop_t* loop, uv_run_mode mode) {
   int timeout;
@@ -339,19 +347,41 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
     uv__update_time(loop);
 
   while (r != 0 && loop->stop_flag == 0) {
+    clock_t start;
+
     uv__update_time(loop);
+
+    start = clock();
     uv__run_timers(loop);
+    log_end_time(&start, "timers");
+
+    start = clock();
     ran_pending = uv__run_pending(loop);
+    log_end_time(&start, "pending");
+
+    start = clock();
     uv__run_idle(loop);
+    log_end_time(&start, "idle");
+
+    start = clock();
     uv__run_prepare(loop);
+    log_end_time(&start, "prepare");
 
     timeout = 0;
     if ((mode == UV_RUN_ONCE && !ran_pending) || mode == UV_RUN_DEFAULT)
       timeout = uv_backend_timeout(loop);
 
+    start = clock();
     uv__io_poll(loop, timeout);
+    log_end_time(&start, "io_poll");
+
+    start = clock();
     uv__run_check(loop);
+    log_end_time(&start, "check");
+
+    start = clock();
     uv__run_closing_handles(loop);
+    log_end_time(&start, "closing_handles");
 
     if (mode == UV_RUN_ONCE) {
       /* UV_RUN_ONCE implies forward progress: at least one callback must have
